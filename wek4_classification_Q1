@@ -77,3 +77,13 @@ table(prob_genuine,banknote.test.labels)
 prob_genuine counterfeit genuine
            0          85       0
            1           0      85
+           
+           
+# qda
+modqda = qda(x=banknote.training, grouping=banknote.training.labels, method="mle")
+table(predict(modqda, banknote.test)$class,banknote.test.labels)
+##results
+             banknote.test.labels
+              counterfeit genuine
+  counterfeit          82       0
+  genuine               3      85
