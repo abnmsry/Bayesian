@@ -1,0 +1,79 @@
+library(MASS)
+library(mvtnorm)
+library(MCMCpack)
+load("banknoteclassification.RData")
+x   = rbind(banknote.training,banknote.test)
+
+n   = dim(banknote.training)[1]
+m   = dim(unique(banknote.test))[1]
+KK  = length(unique(banknote.training.labels))
+p   = dim(banknote.training)[2]
+cc         = c(as.numeric(banknote.training.labels), sample(1:KK, m, replace=TRUE, prob=w))
+
+# Initialize the parameters of the algorithm
+set.seed(63252)
+w   = rep(1,KK)/KK  #Assign equal weight to each component to start with
+mu  = rmvnorm(KK, apply(x,2,mean), var(x))   #Cluster centers randomly spread over the support of the data
+Sigma      = array(0, dim=c(KK,p,p))  #Initial variances are assumed to be the same
+Sigma[1,,] = var(x)/KK  
+Sigma[2,,] = var(x)/KK
+
+aa=rep(1,KK)
+dd=apply(x,2,mean)
+DD=10*var(x)
+nu=p+1
+SS=var(x)/3
+rrr=1000
+burn=999
+
+cc.out    = array(0, dim=c(rrr, (n+m)))
+w.out     = array(0, dim=c(rrr, KK))
+mu.out    = array(0, dim=c(rrr, KK,p))
+sigma.out = array(0, dim=c(rrr, KK,p,p))
+
+for (s in 1:rrr){
+  ## E step
+  for(i in (n+1):(n+m)){
+    v = rep(0,KK)
+    for(k in 1:KK){
+      v[k] = log(w[k]) + dmvnorm(x[i,], mu[k,], Sigma[k,,], log=TRUE)  #Compute the log of the weights
+    }
+    v = exp(v - max(v))/sum(exp(v - max(v)))
+    cc[i] = sample(1:KK, 1, replace=TRUE, prob=v)
+  }
+  
+  ## M step
+  w = as.vector(rdirichlet(1,aa+tabulate(cc)))
+  DD.st = matrix(0, nrow=p, ncol=p)
+  for(k in 1:KK){
+    mk    = sum(cc==k)
+    xsumk = apply(x[cc==k,], 2, sum)
+    DD.st = solve(mk*solve(Sigma[k,,]) + solve(DD))
+    dd.st = DD.st%*%(solve(Sigma[k,,])%*%xsumk + solve(DD)%*%dd)
+    mu[k,] = as.vector(rmvnorm(1,dd.st,DD.st))
+  }
+  xcensumk = array(0, dim=c(KK,p,p))
+  for(i in 1:(n+m)){  ## Need to loop over all (n+m) observations, not just the first n
+    xcensumk[cc[i],,] = xcensumk[cc[i],,] + (x[i,] - mu[cc[i],])%*%t(x[i,] - mu[cc[i],])
+  }
+  for(k in 1:KK){
+    Sigma[k,,] = riwish(nu + sum(cc==k), SS + xcensumk[k,,])
+  }
+  cc.out[s,]   = cc
+  w.out[s,]    = w
+  mu.out[s,,]   = mu
+  sigma.out[s,,,] = sigma
+}
+
+## Predicted labels
+prob_genuine = rep(NA, m)
+for(i in 1:m){
+  prob_genuine[i] = sum(cc.out[-seq(1,burn),n+i]==2)/(rrr-burn)
+}
+table(prob_genuine,banknote.test.labels)
+
+## results
+            banknote.test.labels
+prob_genuine counterfeit genuine
+           0          85       0
+           1           0      85
